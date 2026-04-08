@@ -4,7 +4,7 @@ description: 'Build SBCL from source and install Quicklisp, matching the coalton
 inputs:
   sbcl-version:
     description: 'SBCL version to build from source'
-    default: '2.6.2'
+    default: '2.6.3'
 
 runs:
   using: 'composite'
