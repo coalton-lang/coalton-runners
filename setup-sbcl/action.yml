@@ -1,0 +1,119 @@
+name: 'Setup SBCL'
+description: 'Build SBCL from source and install Quicklisp, matching the coalton-lang/base-images Docker setup'
+
+inputs:
+  sbcl-version:
+    description: 'SBCL version to build from source'
+    default: '2.6.2'
+
+runs:
+  using: 'composite'
+  steps:
+    # --- Install bootstrap SBCL and build dependencies ---
+
+    - name: Install bootstrap SBCL (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y sbcl bzip2 libgmp-dev libmpfr-dev make
+
+    - name: Install bootstrap SBCL (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: brew install sbcl
+
+    - name: Install bootstrap SBCL (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install sbcl -y
+
+    # --- Build SBCL from source ---
+
+    - name: Build SBCL from source (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        curl -L -o /tmp/sbcl-src.tar.bz2 \
+          "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
+        tar xf /tmp/sbcl-src.tar.bz2 -C /tmp
+        cd /tmp/sbcl-${{ inputs.sbcl-version }}
+        sh make.sh --prefix=/usr/local
+        sudo sh install.sh
+
+    - name: Build SBCL from source (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        curl.exe -L -o "$env:TEMP\sbcl-src.tar.bz2" `
+          "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
+        7z x "$env:TEMP\sbcl-src.tar.bz2" -o"$env:TEMP" -y
+        7z x "$env:TEMP\sbcl-src.tar" -o"$env:TEMP" -y
+        cd "$env:TEMP\sbcl-${{ inputs.sbcl-version }}"
+        sh make.sh --prefix="C:\sbcl"
+        sh install.sh
+        echo "C:\sbcl\bin" >> $env:GITHUB_PATH
+
+    # --- Remove bootstrap SBCL ---
+
+    - name: Remove bootstrap SBCL (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get remove -y sbcl
+
+    - name: Remove bootstrap SBCL (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: brew uninstall sbcl
+
+    - name: Remove bootstrap SBCL (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: choco uninstall sbcl -y
+
+    # --- Install Quicklisp ---
+
+    - name: Install Quicklisp (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        curl -o /tmp/quicklisp.lisp https://beta.quicklisp.org/quicklisp.lisp
+        sbcl --noinform --non-interactive \
+          --load /tmp/quicklisp.lisp \
+          --eval '(quicklisp-quickstart:install)' \
+          --eval '(quit)'
+
+    - name: Install Quicklisp (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        curl.exe -L -o "$env:TEMP\quicklisp.lisp" https://beta.quicklisp.org/quicklisp.lisp
+        sbcl --noinform --non-interactive `
+          --load "$env:TEMP\quicklisp.lisp" `
+          --eval '(quicklisp-quickstart:install)' `
+          --eval '(quit)'
+
+    # --- Workaround libraries (matching base-images Docker setup) ---
+
+    - name: Clone compatibility libraries
+      shell: bash
+      run: |
+        EXTRAS_DIR="$HOME/quicklisp-extras"
+        mkdir -p "$EXTRAS_DIR"
+        git clone -c core.autocrlf=false https://github.com/melisgl/named-readtables.git "$EXTRAS_DIR/named-readtables"
+        git clone -c core.autocrlf=false https://github.com/slburson/misc-extensions.git "$EXTRAS_DIR/misc-extensions"
+        git clone -c core.autocrlf=false https://github.com/slburson/fset.git "$EXTRAS_DIR/fset"
+
+    # --- Configure sbclrc ---
+
+    - name: Write sbclrc
+      shell: bash
+      run: |
+        cat > "$HOME/.sbclrc" << 'EOF'
+        #-quicklisp
+        (let ((quicklisp-init (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
+          (when (probe-file quicklisp-init)
+            (load quicklisp-init)))
+
+        (setf ql:*local-project-directories*
+          (list (merge-pathnames "quicklisp-extras/" (user-homedir-pathname))))
+        EOF
