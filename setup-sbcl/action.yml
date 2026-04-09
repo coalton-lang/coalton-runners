@@ -11,10 +11,10 @@ runs:
   steps:
     # --- Install bootstrap SBCL and build dependencies ---
 
-    - name: Install bootstrap SBCL (Linux)
+    - name: Install dependencies (Linux)
       if: runner.os == 'Linux'
       shell: bash
-      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y sbcl bzip2 libgmp-dev libmpfr-dev make
+      run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libgmp-dev libmpfr-dev
 
     - name: Install bootstrap SBCL (macOS)
       if: runner.os == 'macOS'
@@ -29,8 +29,26 @@ runs:
 
     # --- Build SBCL from source ---
 
-    - name: Build SBCL from source (Unix)
-      if: runner.os != 'Windows'
+    - name: Build SBCL with old glibc (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        mkdir -p /tmp/sbcl-install
+        docker run --rm -v /tmp/sbcl-install:/out debian:bullseye sh -c '
+          set -ex
+          apt-get update
+          apt-get install --no-install-recommends -y sbcl build-essential zlib1g-dev libzstd-dev libgmp-dev libmpfr-dev curl bzip2 ca-certificates
+          curl -L -o /tmp/sbcl-src.tar.bz2 \
+            "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
+          tar xf /tmp/sbcl-src.tar.bz2 -C /tmp
+          cd /tmp/sbcl-${{ inputs.sbcl-version }}
+          sh make.sh --prefix=/usr/local
+          INSTALL_ROOT=/out sh install.sh
+        '
+        sudo cp -a /tmp/sbcl-install/* /usr/local/
+
+    - name: Build SBCL from source (macOS)
+      if: runner.os == 'macOS'
       shell: bash
       run: |
         curl -L -o /tmp/sbcl-src.tar.bz2 \
@@ -54,11 +72,6 @@ runs:
         echo "C:\sbcl\bin" >> $env:GITHUB_PATH
 
     # --- Remove bootstrap SBCL ---
-
-    - name: Remove bootstrap SBCL (Linux)
-      if: runner.os == 'Linux'
-      shell: bash
-      run: sudo apt-get remove -y sbcl
 
     - name: Remove bootstrap SBCL (macOS)
       if: runner.os == 'macOS'
