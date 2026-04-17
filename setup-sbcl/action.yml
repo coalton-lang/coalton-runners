@@ -3,8 +3,17 @@ description: 'Build SBCL from source and install Quicklisp, matching the coalton
 
 inputs:
   sbcl-version:
-    description: 'SBCL version to build from source'
+    description: 'SBCL version to build from source (used when sbcl-git-repo is not set)'
     default: '2.6.3'
+  sbcl-git-repo:
+    description: 'Git repository URL for SBCL source (overrides SourceForge tarball when set)'
+    default: ''
+  sbcl-git-ref:
+    description: 'Git branch, tag, or SHA to checkout (used with sbcl-git-repo)'
+    default: ''
+  make-extra-flags:
+    description: 'Extra flags to pass to make.sh (e.g. --with-sb-linkable-runtime)'
+    default: ''
 
 runs:
   using: 'composite'
@@ -50,26 +59,57 @@ runs:
     - name: Build SBCL from source (macOS)
       if: runner.os == 'macOS'
       shell: bash
+      env:
+        SBCL_GIT_REPO: ${{ inputs.sbcl-git-repo }}
+        SBCL_GIT_REF: ${{ inputs.sbcl-git-ref }}
+        SBCL_EXTRA_FLAGS: ${{ inputs.make-extra-flags }}
       run: |
-        curl -L -o /tmp/sbcl-src.tar.bz2 \
-          "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
-        tar xf /tmp/sbcl-src.tar.bz2 -C /tmp
-        cd /tmp/sbcl-${{ inputs.sbcl-version }}
-        sh make.sh --prefix=/usr/local
+        if [ -n "$SBCL_GIT_REPO" ]; then
+          git clone ${SBCL_GIT_REF:+-b "$SBCL_GIT_REF"} "$SBCL_GIT_REPO" /tmp/sbcl-src
+          # Fetch upstream release tags so git-describe reports the
+          # correct version (forks may lack sbcl/sbcl's tags).
+          git -C /tmp/sbcl-src fetch --tags https://github.com/sbcl/sbcl.git 2>/dev/null || true
+          SBCL_DIR=/tmp/sbcl-src
+        else
+          curl -L -o /tmp/sbcl-src.tar.bz2 \
+            "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
+          tar xf /tmp/sbcl-src.tar.bz2 -C /tmp
+          SBCL_DIR="/tmp/sbcl-${{ inputs.sbcl-version }}"
+        fi
+        cd "$SBCL_DIR"
+        sh make.sh --prefix=/usr/local $SBCL_EXTRA_FLAGS
         sudo sh install.sh
+        echo "SBCL_SRC_DIR=$SBCL_DIR" >> "$GITHUB_ENV"
 
     - name: Build SBCL from source (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
+      env:
+        SBCL_GIT_REPO: ${{ inputs.sbcl-git-repo }}
+        SBCL_GIT_REF: ${{ inputs.sbcl-git-ref }}
+        SBCL_EXTRA_FLAGS: ${{ inputs.make-extra-flags }}
       run: |
-        curl.exe -L -o "$env:TEMP\sbcl-src.tar.bz2" `
-          "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
-        7z x "$env:TEMP\sbcl-src.tar.bz2" -o"$env:TEMP" -y
-        7z x "$env:TEMP\sbcl-src.tar" -o"$env:TEMP" -y
-        cd "$env:TEMP\sbcl-${{ inputs.sbcl-version }}"
-        sh make.sh --prefix="C:\sbcl"
+        if ($env:SBCL_GIT_REPO) {
+          $refArgs = if ($env:SBCL_GIT_REF) { @("-b", $env:SBCL_GIT_REF) } else { @() }
+          git clone @refArgs $env:SBCL_GIT_REPO "$env:TEMP\sbcl-src"
+          # Fetch upstream release tags so git-describe reports the
+          # correct version (forks may lack sbcl/sbcl's tags).
+          git -C "$env:TEMP\sbcl-src" fetch --tags https://github.com/sbcl/sbcl.git 2>$null
+          $sbclDir = "$env:TEMP\sbcl-src"
+        } else {
+          curl.exe -L -o "$env:TEMP\sbcl-src.tar.bz2" `
+            "https://sourceforge.net/projects/sbcl/files/sbcl/${{ inputs.sbcl-version }}/sbcl-${{ inputs.sbcl-version }}-source.tar.bz2"
+          7z x "$env:TEMP\sbcl-src.tar.bz2" -o"$env:TEMP" -y
+          7z x "$env:TEMP\sbcl-src.tar" -o"$env:TEMP" -y
+          $sbclDir = "$env:TEMP\sbcl-${{ inputs.sbcl-version }}"
+        }
+        cd $sbclDir
+        $makeArgs = @("make.sh", "--prefix=C:\sbcl")
+        if ($env:SBCL_EXTRA_FLAGS) { $makeArgs += $env:SBCL_EXTRA_FLAGS }
+        sh @makeArgs
         sh install.sh
         echo "C:\sbcl\bin" >> $env:GITHUB_PATH
+        echo "SBCL_SRC_DIR=$sbclDir" >> $env:GITHUB_ENV
 
     # --- Remove bootstrap SBCL ---
 
