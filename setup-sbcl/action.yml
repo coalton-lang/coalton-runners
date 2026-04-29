@@ -34,7 +34,12 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        choco install sbcl -y
+        $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64' } else { 'x86-64' }
+        $url = "http://prdownloads.sourceforge.net/sbcl/sbcl-${{ inputs.sbcl-version }}-${arch}-windows-binary.msi"
+        $msi = "$env:TEMP\sbcl-bootstrap.msi"
+        curl.exe -L -o $msi $url
+        Start-Process msiexec.exe -ArgumentList "/i", $msi, "/qn", "/norestart" -Wait
+        echo "C:\Program Files\Steel Bank Common Lisp" >> $env:GITHUB_PATH
 
     # --- Build SBCL from source ---
 
@@ -121,7 +126,11 @@ runs:
     - name: Remove bootstrap SBCL (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
-      run: choco uninstall sbcl -y
+      run: |
+        $msi = "$env:TEMP\sbcl-bootstrap.msi"
+        if (Test-Path $msi) {
+          Start-Process msiexec.exe -ArgumentList "/x", $msi, "/qn", "/norestart" -Wait
+        }
 
     # --- Install Quicklisp ---
 
