@@ -43,12 +43,13 @@ runs:
 
     # --- Build SBCL from source ---
 
-    - name: Build SBCL with old glibc (Linux)
+    # The host must support Bookworm's glibc 2.36 or newer.
+    - name: Build SBCL on Debian Bookworm (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         mkdir -p /tmp/sbcl-install
-        docker run --rm -v /tmp/sbcl-install:/out debian:bullseye sh -c '
+        docker run --rm -v /tmp/sbcl-install:/out debian:bookworm sh -c '
           set -ex
           apt-get update
           apt-get install --no-install-recommends -y sbcl build-essential zlib1g-dev libzstd-dev libgmp-dev libmpfr-dev curl bzip2 ca-certificates
